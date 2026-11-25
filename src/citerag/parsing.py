@@ -1,7 +1,10 @@
 import re
+from io import BytesIO
 from pathlib import PurePath
 
 from pydantic import BaseModel
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
 
@@ -50,9 +53,21 @@ def parse_text(text: str, markdown: bool = False) -> list[Passage]:
     return passages
 
 
+def parse_pdf(data: bytes) -> list[Passage]:
+    """One passage per page with text; empty or scanned (image-only) pages are skipped."""
+    try:
+        reader = PdfReader(BytesIO(data))
+        texts = [page.extract_text() or "" for page in reader.pages]
+    except PdfReadError as e:
+        raise ValueError(f"Invalid PDF: {e}") from e
+    return [Passage(text=t.strip(), page=n) for n, t in enumerate(texts, start=1) if t.strip()]
+
+
 def parse(filename: str, data: bytes) -> list[Passage]:
     """Parse an uploaded file by extension."""
     ext = PurePath(filename).suffix.lower()
     if ext in (".txt", ".md", ".markdown"):
         return parse_text(data.decode("utf-8-sig"), markdown=ext != ".txt")
+    if ext == ".pdf":
+        return parse_pdf(data)
     raise ValueError(f"Unsupported file type: {ext or filename}")
