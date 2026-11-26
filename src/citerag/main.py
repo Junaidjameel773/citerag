@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from citerag import __version__
-from citerag.answer import REFUSAL, build_messages, is_refusal
+from citerag.answer import REFUSAL, build_messages, is_refusal, validate_citations
 from citerag.chunking import chunk_passages
 from citerag.config import settings
 from citerag.embeddings import Embedder, get_embedder
@@ -78,7 +78,8 @@ class Citation(SearchHit):
 class AskResponse(BaseModel):
     answer: str
     refused: bool  # true when the documents do not contain the answer
-    citations: list[Citation]
+    uncited: bool = False  # true when an answer cites no valid source; treat it as unverified
+    citations: list[Citation]  # only the sources the answer actually cites
 
 
 def _search(store: ChunkStore, embedder: Embedder, query: str, k: int) -> list[SearchHit]:
@@ -160,8 +161,9 @@ def ask(
     answer = llm.complete(build_messages(req.question, [h.model_dump() for h in hits]))
     if is_refusal(answer):
         return AskResponse(answer=answer, refused=True, citations=[])
-    citations = [Citation(n=n, **h.model_dump()) for n, h in enumerate(hits, 1)]
-    return AskResponse(answer=answer, refused=False, citations=citations)
+    answer, cited = validate_citations(answer, len(hits))
+    citations = [Citation(n=n, **hits[n - 1].model_dump()) for n in cited]
+    return AskResponse(answer=answer, refused=False, uncited=not cited, citations=citations)
 
 
 @app.get("/documents")
