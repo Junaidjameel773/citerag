@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CITERAG_")
 
     llm_provider: str = "openai"
+    llm_model: str = "gpt-4o-mini"
     chroma_path: str = "./data/chroma"
     max_upload_mb: int = 20
     embeddings: str = "openai"
