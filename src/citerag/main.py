@@ -1,13 +1,17 @@
+from functools import lru_cache
 from pathlib import PurePath
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from citerag import __version__
 from citerag.chunking import chunk_passages
 from citerag.config import settings
+from citerag.embeddings import Embedder, get_embedder
 from citerag.models import Document, DocumentRegistry
 from citerag.parsing import parse
+from citerag.store import ChunkStore
 
 # Accepted content types per extension; octet-stream is what many clients send for unknown types.
 CONTENT_TYPES = {
@@ -25,6 +29,16 @@ app = FastAPI(
 registry = DocumentRegistry()
 
 
+@lru_cache
+def get_store() -> ChunkStore:
+    return ChunkStore()
+
+
+@lru_cache
+def get_cached_embedder() -> Embedder:
+    return get_embedder()
+
+
 class UploadResult(BaseModel):
     id: str
     filename: str
@@ -37,7 +51,11 @@ def health() -> dict[str, str]:
 
 
 @app.post("/documents", status_code=201)
-async def upload_document(file: UploadFile) -> UploadResult:
+async def upload_document(
+    file: UploadFile,
+    store: Annotated[ChunkStore, Depends(get_store)],
+    embedder: Annotated[Embedder, Depends(get_cached_embedder)],
+) -> UploadResult:
     filename = file.filename or ""
     ext = PurePath(filename).suffix.lower()
     if ext not in CONTENT_TYPES:
@@ -60,7 +78,7 @@ async def upload_document(file: UploadFile) -> UploadResult:
 
     doc = Document(filename=filename)
     chunks = chunk_passages(doc, passages)
-    # ponytail: chunks are not stored yet; vector store persistence lands in #8
+    store.upsert(chunks, embedder.embed([c.text for c in chunks]))
     doc.metadata["chunk_count"] = len(chunks)
     registry.add(doc)
     return UploadResult(id=doc.id, filename=filename, chunks=len(chunks))

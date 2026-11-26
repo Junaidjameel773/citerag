@@ -1,0 +1,34 @@
+import chromadb
+
+from citerag.config import settings
+from citerag.models import Chunk
+
+
+class ChunkStore:
+    """Chunks, their embeddings and metadata in a persistent Chroma collection."""
+
+    def __init__(self, path: str | None = None) -> None:
+        client = chromadb.PersistentClient(path=path or settings.chroma_path)
+        self.collection = client.get_or_create_collection(
+            "chunks", metadata={"hnsw:space": "cosine"}
+        )
+
+    def upsert(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        if len(chunks) != len(embeddings):
+            raise ValueError("chunks and embeddings must have the same length")
+        if not chunks:
+            return
+        self.collection.upsert(
+            ids=[c.id for c in chunks],
+            embeddings=embeddings,
+            documents=[c.text for c in chunks],
+            metadatas=[_metadata(c) for c in chunks],
+        )
+
+
+def _metadata(chunk: Chunk) -> dict:
+    # Chroma metadata values must be scalars and not None.
+    meta = {"document_id": chunk.document_id, "filename": chunk.filename, **chunk.metadata}
+    if chunk.page is not None:
+        meta["page"] = chunk.page
+    return {k: v for k, v in meta.items() if v is not None}
