@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from test_parse_pdf import make_pdf
 
 from citerag.config import settings
-from citerag.main import app, registry
+from citerag.main import app
 
 client = TestClient(app)
 
@@ -16,7 +16,22 @@ def test_upload_markdown():
     assert r.status_code == 201
     body = r.json()
     assert body["filename"] == "notes.md" and body["chunks"] == 1
-    assert registry.get(body["id"]).metadata == {"chunk_count": 1}
+
+
+def test_list_and_delete_documents(store):
+    a = upload("a.pdf", make_pdf(["One", "Two"]), "application/pdf").json()
+    b = upload("b.txt", b"Hello.", "text/plain").json()
+    assert client.get("/documents").json() == [a, b]
+    assert a["chunks"] == 2
+
+    assert client.delete(f"/documents/{a['id']}").status_code == 204
+    assert client.get("/documents").json() == [b]
+    assert store.collection.get(where={"document_id": a["id"]})["ids"] == []
+    assert client.delete(f"/documents/{a['id']}").status_code == 404
+
+
+def test_list_empty():
+    assert client.get("/documents").json() == []
 
 
 def test_upload_pdf(store):

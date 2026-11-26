@@ -9,7 +9,7 @@ from citerag import __version__
 from citerag.chunking import chunk_passages
 from citerag.config import settings
 from citerag.embeddings import Embedder, get_embedder
-from citerag.models import Document, DocumentRegistry
+from citerag.models import Document
 from citerag.parsing import parse
 from citerag.store import ChunkStore
 
@@ -26,7 +26,6 @@ app = FastAPI(
     version=__version__,
     description="Document Q&A API with grounded, cited answers.",
 )
-registry = DocumentRegistry()
 
 
 @lru_cache
@@ -39,7 +38,7 @@ def get_cached_embedder() -> Embedder:
     return get_embedder()
 
 
-class UploadResult(BaseModel):
+class DocumentInfo(BaseModel):
     id: str
     filename: str
     chunks: int
@@ -55,7 +54,7 @@ async def upload_document(
     file: UploadFile,
     store: Annotated[ChunkStore, Depends(get_store)],
     embedder: Annotated[Embedder, Depends(get_cached_embedder)],
-) -> UploadResult:
+) -> DocumentInfo:
     filename = file.filename or ""
     ext = PurePath(filename).suffix.lower()
     if ext not in CONTENT_TYPES:
@@ -79,6 +78,15 @@ async def upload_document(
     doc = Document(filename=filename)
     chunks = chunk_passages(doc, passages)
     store.upsert(chunks, embedder.embed([c.text for c in chunks]))
-    doc.metadata["chunk_count"] = len(chunks)
-    registry.add(doc)
-    return UploadResult(id=doc.id, filename=filename, chunks=len(chunks))
+    return DocumentInfo(id=doc.id, filename=filename, chunks=len(chunks))
+
+
+@app.get("/documents")
+def list_documents(store: Annotated[ChunkStore, Depends(get_store)]) -> list[DocumentInfo]:
+    return [DocumentInfo(**d) for d in store.documents()]
+
+
+@app.delete("/documents/{document_id}", status_code=204)
+def delete_document(document_id: str, store: Annotated[ChunkStore, Depends(get_store)]) -> None:
+    if not store.delete_document(document_id):
+        raise HTTPException(404, "Document not found")

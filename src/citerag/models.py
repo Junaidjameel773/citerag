@@ -21,20 +21,3 @@ class Document(BaseModel):
     id: str = Field(default_factory=_new_id)
     filename: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class DocumentRegistry:
-    """In-memory store of documents, keyed by id."""
-
-    def __init__(self) -> None:
-        self._docs: dict[str, Document] = {}
-
-    def add(self, doc: Document) -> Document:
-        self._docs[doc.id] = doc
-        return doc
-
-    def get(self, doc_id: str) -> Document | None:
-        return self._docs.get(doc_id)
-
-    def list(self) -> list[Document]:
-        return list(self._docs.values())
