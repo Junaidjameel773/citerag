@@ -25,7 +25,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 | Hybrid search (vector + BM25) with reranking | In progress (vector search done) |
 | Answers with inline citations `[1]` mapped to source passages | Done |
 | Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | Done |
-| Streaming responses (SSE) | Planned |
+| Streaming responses (SSE) | Done |
 | Collections to separate document sets | Planned |
 | Evaluation suite (faithfulness, answer relevance) | Planned |
 | Docker image and one-command deploy | Planned |
@@ -84,7 +84,7 @@ Open http://localhost:8000/docs for the interactive API.
 | `GET` | `/health` | Service status and version |
 | `POST` | `/documents` | Upload a `.pdf`, `.md` or `.txt` file (multipart field `file`); returns document id and chunk count |
 | `POST` | `/search` | Top-k vector search: `{"query": "...", "k": 5}` (`k` 1-50); returns chunks with cosine `score`, `document_id`, `filename`, `page` and `metadata` |
-| `POST` | `/ask` | Grounded answer: `{"question": "...", "k": 5}`; returns `answer` with inline `[n]` markers, `refused` (true when the documents lack the answer), `uncited` (true when the answer cites no valid source) and `citations` for the cited sources only (`n`, `filename`, `page`, passage `text`, ...). Markers pointing at no source are removed |
+| `POST` | `/ask` | Grounded answer: `{"question": "...", "k": 5}`; returns `answer` with inline `[n]` markers, `refused` (true when the documents lack the answer), `uncited` (true when the answer cites no valid source) and `citations` for the cited sources only (`n`, `filename`, `page`, passage `text`, ...). Markers pointing at no source are removed. With `?stream=true`, responds with Server-Sent Events: `token` events (`{"text": "..."}`) then one `done` event holding the full response |
 | `GET` | `/documents` | List stored documents with their chunk counts |
 | `DELETE` | `/documents/{id}` | Delete a document and its vectors (`404` if unknown) |
 

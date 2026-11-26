@@ -1,8 +1,11 @@
+import json
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import PurePath
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from citerag import __version__
@@ -148,22 +151,48 @@ def search(
     return _search(store, embedder, req.query, req.k)
 
 
-@app.post("/ask")
-def ask(
-    req: AskRequest,
-    store: Annotated[ChunkStore, Depends(get_store)],
-    embedder: Annotated[Embedder, Depends(get_cached_embedder)],
-    llm: Annotated[LLM, Depends(get_cached_llm)],
-) -> AskResponse:
-    hits = _search(store, embedder, req.question, req.k)
-    if not hits:  # nothing to ground an answer in; don't pay for an LLM call
-        return AskResponse(answer=REFUSAL, refused=True, citations=[])
-    answer = llm.complete(build_messages(req.question, [h.model_dump() for h in hits]))
+def _finish(answer: str, hits: list[SearchHit]) -> AskResponse:
     if is_refusal(answer):
         return AskResponse(answer=answer, refused=True, citations=[])
     answer, cited = validate_citations(answer, len(hits))
     citations = [Citation(n=n, **hits[n - 1].model_dump()) for n in cited]
     return AskResponse(answer=answer, refused=False, uncited=not cited, citations=citations)
+
+
+def _sse(event: str, data: str) -> str:
+    return f"event: {event}\ndata: {data}\n\n"
+
+
+@app.post("/ask", response_model=AskResponse)
+def ask(
+    req: AskRequest,
+    store: Annotated[ChunkStore, Depends(get_store)],
+    embedder: Annotated[Embedder, Depends(get_cached_embedder)],
+    llm: Annotated[LLM, Depends(get_cached_llm)],
+    stream: bool = False,
+):
+    """With `?stream=true`, responds with Server-Sent Events: `token` events carrying
+    `{"text": ...}` as the model writes, then one `done` event with the full AskResponse
+    (cleaned answer and citations)."""
+    hits = _search(store, embedder, req.question, req.k)
+    messages = build_messages(req.question, [h.model_dump() for h in hits])
+    if not stream:
+        if not hits:  # nothing to ground an answer in; don't pay for an LLM call
+            return AskResponse(answer=REFUSAL, refused=True, citations=[])
+        return _finish(llm.complete(messages), hits)
+
+    def events() -> Iterator[str]:
+        if not hits:
+            done = AskResponse(answer=REFUSAL, refused=True, citations=[])
+            yield _sse("done", done.model_dump_json())
+            return
+        parts = []
+        for token in llm.stream(messages):
+            parts.append(token)
+            yield _sse("token", json.dumps({"text": token}))
+        yield _sse("done", _finish("".join(parts), hits).model_dump_json())
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.get("/documents")

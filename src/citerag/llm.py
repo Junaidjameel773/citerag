@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Protocol
 
 from citerag.config import settings
@@ -24,6 +25,8 @@ COMPATIBLE = {
 class LLM(Protocol):
     def complete(self, messages: list[Message]) -> str: ...
 
+    def stream(self, messages: list[Message]) -> Iterator[str]: ...
+
 
 class OpenAILLM:
     """Chat completions with the OpenAI API or any OpenAI-compatible endpoint (base_url)."""
@@ -47,6 +50,15 @@ class OpenAILLM:
             model=self.model, messages=messages, temperature=0
         )
         return resp.choices[0].message.content or ""
+
+    def stream(self, messages: list[Message]) -> Iterator[str]:
+        chunks = self.client.chat.completions.create(
+            model=self.model, messages=messages, temperature=0, stream=True
+        )
+        for chunk in chunks:
+            # Some chunks (e.g. a final usage chunk) carry no choices or no text.
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
 
 def get_llm() -> LLM:
