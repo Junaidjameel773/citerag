@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = "openai"
     chroma_path: str = "./data/chroma"
+    max_upload_mb: int = 20
 
 
 settings = Settings()

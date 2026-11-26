@@ -20,7 +20,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 
 | | Status |
 |---|---|
-| Upload PDF, Markdown and TXT files | Planned |
+| Upload PDF, Markdown and TXT files | Done |
 | Smart chunking with page-level metadata | Done |
 | Hybrid search (vector + BM25) with reranking | Planned |
 | Answers with inline citations `[1]` mapped to source passages | Planned |
@@ -67,6 +67,7 @@ Open http://localhost:8000/docs for the interactive API.
 |---|---|---|
 | `CITERAG_LLM_PROVIDER` | `openai` | `openai`, `gemini`, `groq` or `ollama` |
 | `CITERAG_CHROMA_PATH` | `./data/chroma` | Where the vector store is persisted |
+| `CITERAG_MAX_UPLOAD_MB` | `20` | Maximum upload size in MB |
 | `OPENAI_API_KEY` | | Required for the OpenAI provider |
 | `GEMINI_API_KEY` | | Required for the Gemini provider |
 
@@ -75,6 +76,7 @@ Open http://localhost:8000/docs for the interactive API.
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Service status and version |
+| `POST` | `/documents` | Upload a `.pdf`, `.md` or `.txt` file (multipart field `file`); returns document id and chunk count |
 
 More endpoints land as milestones complete.
 
