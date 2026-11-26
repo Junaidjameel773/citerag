@@ -21,7 +21,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 | | Status |
 |---|---|
 | Upload PDF, Markdown and TXT files | Planned |
-| Smart chunking with page-level metadata | Planned |
+| Smart chunking with page-level metadata | Done |
 | Hybrid search (vector + BM25) with reranking | Planned |
 | Answers with inline citations `[1]` mapped to source passages | Planned |
 | Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | Planned |
