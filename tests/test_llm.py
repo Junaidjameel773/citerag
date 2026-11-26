@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from citerag.config import settings
-from citerag.llm import GEMINI_BASE_URL, LLM, OpenAILLM, get_llm
+from citerag.llm import GEMINI_BASE_URL, GROQ_BASE_URL, LLM, OpenAILLM, get_llm
 
 
 class FakeCompletions:
@@ -85,4 +85,22 @@ def test_gemini_requires_its_own_key(monkeypatch):
     monkeypatch.setattr(settings, "gemini_api_key", "")
     monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
     with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+        get_llm()
+
+
+def test_groq_uses_openai_compatible_endpoint(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "groq")
+    monkeypatch.setattr(settings, "llm_model", "llama-custom")
+    monkeypatch.setattr(settings, "groq_api_key", "gsk-key")
+    llm = get_llm()
+    assert llm.model == "llama-custom"
+    assert str(llm.client.base_url).rstrip("/") == GROQ_BASE_URL
+    assert llm.client.api_key == "gsk-key"
+
+
+def test_groq_requires_its_own_key(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "groq")
+    monkeypatch.setattr(settings, "groq_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
+    with pytest.raises(ValueError, match="GROQ_API_KEY"):
         get_llm()
