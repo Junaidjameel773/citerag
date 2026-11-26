@@ -2,7 +2,7 @@ import json
 from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import PurePath
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -66,6 +66,9 @@ CollectionQuery = Annotated[
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     k: int = Field(5, ge=1, le=50)
+    mode: Literal["vector", "keyword"] = Field(
+        "vector", description="vector: cosine similarity; keyword: BM25"
+    )
     collection: str | None = Field(None, pattern=COLLECTION_PATTERN, description=COLLECTION_HELP)
 
 
@@ -97,12 +100,21 @@ class AskResponse(BaseModel):
 
 
 def _search(
-    store: ChunkStore, embedder: Embedder, query: str, k: int, collection: str | None
+    store: ChunkStore,
+    embedder: Embedder,
+    query: str,
+    k: int,
+    collection: str | None,
+    mode: str = "vector",
 ) -> list[SearchHit]:
     if not query.strip():
         raise HTTPException(422, "Query must not be blank")
+    if mode == "keyword":
+        raw = store.keyword_search(query, k, collection)
+    else:
+        raw = store.search(embedder.embed([query])[0], k, collection)
     hits = []
-    for h in store.search(embedder.embed([query])[0], k, collection):
+    for h in raw:
         meta = dict(h["metadata"])
         hits.append(
             SearchHit(
@@ -162,7 +174,7 @@ def search(
     store: Annotated[ChunkStore, Depends(get_store)],
     embedder: Annotated[Embedder, Depends(get_cached_embedder)],
 ) -> list[SearchHit]:
-    return _search(store, embedder, req.query, req.k, req.collection)
+    return _search(store, embedder, req.query, req.k, req.collection, req.mode)
 
 
 def _finish(answer: str, hits: list[SearchHit]) -> AskResponse:

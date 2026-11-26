@@ -1,6 +1,7 @@
 import chromadb
 from chromadb.errors import NotFoundError
 
+from citerag.bm25 import bm25_scores
 from citerag.config import settings
 from citerag.models import Chunk
 
@@ -65,6 +66,28 @@ class ChunkStore:
                 strict=True,
             )
         ]
+
+    def keyword_search(self, query: str, k: int = 5, collection: str | None = None) -> list[dict]:
+        """Top-k chunks by BM25 score, best first; chunks sharing no term are left out."""
+        coll = self._collection(collection)
+        if coll is None:
+            return []
+        # ponytail: rebuilds the BM25 index from every chunk per query; cache it per
+        # collection (invalidated on upsert/delete) if collections get large.
+        res = coll.get(include=["documents", "metadatas"])
+        scores = bm25_scores(query, res["documents"])
+        ranked = sorted(
+            (
+                {"id": id_, "text": text, "score": score, "metadata": meta}
+                for id_, text, meta, score in zip(
+                    res["ids"], res["documents"], res["metadatas"], scores, strict=True
+                )
+                if score > 0
+            ),
+            key=lambda h: h["score"],
+            reverse=True,
+        )
+        return ranked[:k]
 
     def documents(self, collection: str | None = None) -> list[dict]:
         """One entry per document: id, filename and chunk count, in insertion order."""
