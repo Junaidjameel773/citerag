@@ -66,8 +66,9 @@ CollectionQuery = Annotated[
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     k: int = Field(5, ge=1, le=50)
-    mode: Literal["vector", "keyword"] = Field(
-        "vector", description="vector: cosine similarity; keyword: BM25"
+    mode: Literal["vector", "keyword", "hybrid"] = Field(
+        "vector",
+        description="vector: cosine similarity; keyword: BM25; hybrid: both, fused by RRF",
     )
     collection: str | None = Field(None, pattern=COLLECTION_PATTERN, description=COLLECTION_HELP)
 
@@ -111,6 +112,8 @@ def _search(
         raise HTTPException(422, "Query must not be blank")
     if mode == "keyword":
         raw = store.keyword_search(query, k, collection)
+    elif mode == "hybrid":
+        raw = store.hybrid_search(query, embedder.embed([query])[0], k, collection)
     else:
         raw = store.search(embedder.embed([query])[0], k, collection)
     hits = []

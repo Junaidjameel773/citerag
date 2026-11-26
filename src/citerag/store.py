@@ -89,6 +89,18 @@ class ChunkStore:
         )
         return ranked[:k]
 
+    def hybrid_search(
+        self, query: str, embedding: list[float], k: int = 5, collection: str | None = None
+    ) -> list[dict]:
+        """Top-k chunks by reciprocal rank fusion of vector and BM25 results, best first."""
+        # ponytail: fuses the top 4k of each list; a chunk ranked lower in both is missed.
+        n = k * 4
+        fused = rrf(
+            [self.search(embedding, n, collection), self.keyword_search(query, n, collection)],
+            [settings.hybrid_vector_weight, settings.hybrid_keyword_weight],
+        )
+        return fused[:k]
+
     def documents(self, collection: str | None = None) -> list[dict]:
         """One entry per document: id, filename and chunk count, in insertion order."""
         coll = self._collection(collection)
@@ -112,6 +124,17 @@ class ChunkStore:
         if ids:
             coll.delete(ids=ids)
         return len(ids)
+
+
+def rrf(rankings: list[list[dict]], weights: list[float], c: int = 60) -> list[dict]:
+    """Reciprocal rank fusion: a hit scores sum(weight / (c + rank)) over the rankings it
+    appears in (rank starts at 1). Returns the hits, best first, with `score` set to that sum."""
+    fused: dict[str, dict] = {}
+    for ranking, weight in zip(rankings, weights, strict=True):
+        for rank, hit in enumerate(ranking, 1):
+            entry = fused.setdefault(hit["id"], {**hit, "score": 0.0})
+            entry["score"] += weight / (c + rank)
+    return sorted(fused.values(), key=lambda h: h["score"], reverse=True)
 
 
 def _metadata(chunk: Chunk) -> dict:

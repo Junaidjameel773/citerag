@@ -22,7 +22,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 |---|---|
 | Upload PDF, Markdown and TXT files | Done |
 | Smart chunking with page-level metadata | Done |
-| Hybrid search (vector + BM25) with reranking | In progress (vector and BM25 keyword search done) |
+| Hybrid search (vector + BM25) with reranking | In progress (vector, BM25 and hybrid RRF search done; reranking planned) |
 | Answers with inline citations `[1]` mapped to source passages | Done |
 | Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | Done |
 | Streaming responses (SSE) | Done |
@@ -73,6 +73,8 @@ Open http://localhost:8000/docs for the interactive API.
 | `CITERAG_EMBEDDINGS` | `openai` | `openai`, or `local` for offline `all-MiniLM-L6-v2` (needs `uv sync --extra local`) |
 | `CITERAG_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
 | `CITERAG_EMBEDDING_RETRIES` | `5` | Retries (with backoff) on rate limits and server errors |
+| `CITERAG_HYBRID_VECTOR_WEIGHT` | `1.0` | Weight of the vector ranking in `hybrid` search |
+| `CITERAG_HYBRID_KEYWORD_WEIGHT` | `1.0` | Weight of the BM25 ranking in `hybrid` search |
 | `OPENAI_API_KEY` | | Required for the OpenAI provider |
 | `GEMINI_API_KEY` | | Required for the Gemini provider |
 | `GROQ_API_KEY` | | Required for the Groq provider |
@@ -83,7 +85,7 @@ Open http://localhost:8000/docs for the interactive API.
 |---|---|---|
 | `GET` | `/health` | Service status and version |
 | `POST` | `/documents` | Upload a `.pdf`, `.md` or `.txt` file (multipart field `file`); returns document id and chunk count |
-| `POST` | `/search` | Top-k search: `{"query": "...", "k": 5, "mode": "vector"}` (`k` 1-50; `mode` `vector` for cosine similarity or `keyword` for BM25, which only returns chunks sharing a query term); returns chunks with `score`, `document_id`, `filename`, `page` and `metadata` |
+| `POST` | `/search` | Top-k search: `{"query": "...", "k": 5, "mode": "vector"}` (`k` 1-50; `mode` `vector` for cosine similarity, `keyword` for BM25, which only returns chunks sharing a query term, or `hybrid` to fuse both with reciprocal rank fusion, where `score` is the fused RRF score); returns chunks with `score`, `document_id`, `filename`, `page` and `metadata` |
 | `POST` | `/ask` | Grounded answer: `{"question": "...", "k": 5}`; returns `answer` with inline `[n]` markers, `refused` (true when the documents lack the answer), `uncited` (true when the answer cites no valid source) and `citations` for the cited sources only (`n`, `filename`, `page`, passage `text`, ...). Markers pointing at no source are removed. With `?stream=true`, responds with Server-Sent Events: `token` events (`{"text": "..."}`) then one `done` event holding the full response |
 | `GET` | `/documents` | List stored documents with their chunk counts |
 | `DELETE` | `/documents/{id}` | Delete a document and its vectors (`404` if unknown) |

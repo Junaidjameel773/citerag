@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     embeddings: str = "openai"
     embedding_model: str = "text-embedding-3-small"
     embedding_retries: int = 5
+    hybrid_vector_weight: float = Field(1.0, ge=0)
+    hybrid_keyword_weight: float = Field(1.0, ge=0)
     openai_api_key: str = Field("", validation_alias="OPENAI_API_KEY")
     gemini_api_key: str = Field("", validation_alias="GEMINI_API_KEY")
     groq_api_key: str = Field("", validation_alias="GROQ_API_KEY")
