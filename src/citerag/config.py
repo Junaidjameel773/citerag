@@ -7,6 +7,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = "openai"
     llm_model: str = ""  # empty: provider default (see llm.DEFAULT_MODELS)
+    ollama_url: str = "http://localhost:11434"
     chroma_path: str = "./data/chroma"
     max_upload_mb: int = 20
     embeddings: str = "openai"
