@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from citerag.config import settings
-from citerag.llm import LLM, OpenAILLM, get_llm
+from citerag.llm import GEMINI_BASE_URL, LLM, OpenAILLM, get_llm
 
 
 class FakeCompletions:
@@ -60,4 +60,29 @@ def test_get_llm(monkeypatch):
     assert isinstance(get_llm(), OpenAILLM)
     monkeypatch.setattr(settings, "llm_provider", "nope")
     with pytest.raises(ValueError, match="nope"):
+        get_llm()
+
+
+def test_default_model_without_settings(monkeypatch):
+    monkeypatch.setattr(settings, "llm_model", "")
+    assert OpenAILLM(client=fake_client("")).model == "gpt-4o-mini"
+
+
+def test_gemini_uses_openai_compatible_endpoint(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
+    monkeypatch.setattr(settings, "llm_model", "")
+    monkeypatch.setattr(settings, "gemini_api_key", "g-key")
+    monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
+    llm = get_llm()
+    assert isinstance(llm, OpenAILLM)
+    assert llm.model == "gemini-2.5-flash"
+    assert str(llm.client.base_url) == GEMINI_BASE_URL
+    assert llm.client.api_key == "g-key"
+
+
+def test_gemini_requires_its_own_key(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
+    with pytest.raises(ValueError, match="GEMINI_API_KEY"):
         get_llm()
