@@ -80,6 +80,8 @@ Open http://localhost:8000/docs for the interactive API.
 |---|---|---|
 | `GET` | `/health` | Service status and version |
 | `POST` | `/documents` | Upload a `.pdf`, `.md` or `.txt` file (multipart field `file`); returns document id and chunk count |
+| `GET` | `/documents` | List stored documents with their chunk counts |
+| `DELETE` | `/documents/{id}` | Delete a document and its vectors (`404` if unknown) |
 
 More endpoints land as milestones complete.
 

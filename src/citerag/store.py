@@ -25,6 +25,24 @@ class ChunkStore:
             metadatas=[_metadata(c) for c in chunks],
         )
 
+    def documents(self) -> list[dict]:
+        """One entry per document: id, filename and chunk count, in insertion order."""
+        # ponytail: scans all chunk metadata; keep a documents table if this gets slow
+        docs: dict[str, dict] = {}
+        for m in self.collection.get(include=["metadatas"])["metadatas"]:
+            doc = docs.setdefault(
+                m["document_id"], {"id": m["document_id"], "filename": m["filename"], "chunks": 0}
+            )
+            doc["chunks"] += 1
+        return list(docs.values())
+
+    def delete_document(self, document_id: str) -> int:
+        """Delete a document's chunks and vectors; returns how many were removed."""
+        ids = self.collection.get(where={"document_id": document_id}, include=[])["ids"]
+        if ids:
+            self.collection.delete(ids=ids)
+        return len(ids)
+
 
 def _metadata(chunk: Chunk) -> dict:
     # Chroma metadata values must be scalars and not None.
