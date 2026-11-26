@@ -68,6 +68,7 @@ Open http://localhost:8000/docs for the interactive API.
 | `CITERAG_LLM_PROVIDER` | `openai` | `openai`, `gemini`, `groq` or `ollama` |
 | `CITERAG_CHROMA_PATH` | `./data/chroma` | Where the vector store is persisted |
 | `CITERAG_MAX_UPLOAD_MB` | `20` | Maximum upload size in MB |
+| `CITERAG_EMBEDDINGS` | `openai` | `openai`, or `local` for offline `all-MiniLM-L6-v2` (needs `uv sync --extra local`) |
 | `CITERAG_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
 | `CITERAG_EMBEDDING_RETRIES` | `5` | Retries (with backoff) on rate limits and server errors |
 | `OPENAI_API_KEY` | | Required for the OpenAI provider |
