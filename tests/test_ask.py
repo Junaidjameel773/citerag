@@ -1,6 +1,7 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from citerag.answer import REFUSAL, build_messages, is_refusal
+from citerag.answer import REFUSAL, build_messages, is_refusal, validate_citations
 from citerag.main import app, get_cached_embedder, get_cached_llm
 from citerag.models import Chunk
 
@@ -61,12 +62,12 @@ def test_is_refusal_is_lenient():
 
 def test_ask_returns_answer_with_numbered_citations(store):
     cats, dogs = seed(store)
-    llm = use_llm("Cats eat fish [1].")
+    llm = use_llm("Cats eat fish [2]. Dogs bark [1].")
     r = client.post("/ask", json={"question": "What do cats eat?", "k": 2})
     assert r.status_code == 200
     body = r.json()
-    assert body["answer"] == "Cats eat fish [1]."
-    assert body["refused"] is False
+    assert body["answer"] == "Cats eat fish [2]. Dogs bark [1]."
+    assert body["refused"] is False and body["uncited"] is False
     assert [(c["n"], c["chunk_id"]) for c in body["citations"]] == [(1, cats.id), (2, dogs.id)]
     first = body["citations"][0]
     assert (first["filename"], first["page"], first["text"]) == ("cats.pdf", 2, "cats")
@@ -74,18 +75,49 @@ def test_ask_returns_answer_with_numbered_citations(store):
     assert "[1] (cats.pdf, page 2)\ncats" in llm.calls[0][1]["content"]
 
 
+def test_ask_returns_only_cited_sources_and_drops_invalid_markers(store):
+    cats, _ = seed(store)
+    use_llm("Cats eat fish [1][7]. They nap [9].")
+    body = client.post("/ask", json={"question": "What do cats eat?", "k": 2}).json()
+    assert body["answer"] == "Cats eat fish [1]. They nap."
+    assert [(c["n"], c["chunk_id"]) for c in body["citations"]] == [(1, cats.id)]
+
+
+def test_ask_flags_answer_without_citations(store):
+    seed(store)
+    use_llm("Cats eat fish [5].")
+    body = client.post("/ask", json={"question": "What do cats eat?"}).json()
+    assert body == {"answer": "Cats eat fish.", "refused": False, "uncited": True, "citations": []}
+
+
+REFUSED = {"answer": REFUSAL, "refused": True, "uncited": False, "citations": []}
+
+
 def test_ask_refusal_from_llm_has_no_citations(store):
     seed(store)
     use_llm(REFUSAL)
-    body = client.post("/ask", json={"question": "What do cats eat?"}).json()
-    assert body == {"answer": REFUSAL, "refused": True, "citations": []}
+    assert client.post("/ask", json={"question": "What do cats eat?"}).json() == REFUSED
 
 
 def test_ask_empty_store_refuses_without_calling_llm():
     llm = use_llm("should not be used")
-    body = client.post("/ask", json={"question": "What do cats eat?"}).json()
-    assert body == {"answer": REFUSAL, "refused": True, "citations": []}
+    assert client.post("/ask", json={"question": "What do cats eat?"}).json() == REFUSED
     assert llm.calls == []
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected", "cited"),
+    [
+        ("A [1]. B [2][3].", "A [1]. B [2][3].", [1, 2, 3]),
+        ("A [1, 3].", "A [1][3].", [1, 3]),
+        ("A [0][4] [3].", "A [3].", [3]),
+        ("A [2]. B [2].", "A [2]. B [2].", [2]),
+        ("No markers.", "No markers.", []),
+        ("Index [x] and list [] stay.", "Index [x] and list [] stay.", []),
+    ],
+)
+def test_validate_citations(answer, expected, cited):
+    assert validate_citations(answer, 3) == (expected, cited)
 
 
 def test_ask_validation():
