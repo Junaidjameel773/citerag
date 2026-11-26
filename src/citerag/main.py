@@ -1,9 +1,9 @@
 from functools import lru_cache
 from pathlib import PurePath
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from citerag import __version__
 from citerag.chunking import chunk_passages
@@ -44,6 +44,21 @@ class DocumentInfo(BaseModel):
     chunks: int
 
 
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    k: int = Field(5, ge=1, le=50)
+
+
+class SearchHit(BaseModel):
+    chunk_id: str
+    document_id: str
+    filename: str
+    page: int | None
+    text: str
+    score: float
+    metadata: dict[str, Any]
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
@@ -79,6 +94,31 @@ async def upload_document(
     chunks = chunk_passages(doc, passages)
     store.upsert(chunks, embedder.embed([c.text for c in chunks]))
     return DocumentInfo(id=doc.id, filename=filename, chunks=len(chunks))
+
+
+@app.post("/search")
+def search(
+    req: SearchRequest,
+    store: Annotated[ChunkStore, Depends(get_store)],
+    embedder: Annotated[Embedder, Depends(get_cached_embedder)],
+) -> list[SearchHit]:
+    if not req.query.strip():
+        raise HTTPException(422, "Query must not be blank")
+    hits = []
+    for h in store.search(embedder.embed([req.query])[0], req.k):
+        meta = dict(h["metadata"])
+        hits.append(
+            SearchHit(
+                chunk_id=h["id"],
+                document_id=meta.pop("document_id"),
+                filename=meta.pop("filename"),
+                page=meta.pop("page", None),
+                text=h["text"],
+                score=h["score"],
+                metadata=meta,
+            )
+        )
+    return hits
 
 
 @app.get("/documents")
