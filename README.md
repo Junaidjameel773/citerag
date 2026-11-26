@@ -22,7 +22,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 |---|---|
 | Upload PDF, Markdown and TXT files | Done |
 | Smart chunking with page-level metadata | Done |
-| Hybrid search (vector + BM25) with reranking | Planned |
+| Hybrid search (vector + BM25) with reranking | In progress (vector search done) |
 | Answers with inline citations `[1]` mapped to source passages | Planned |
 | Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | Planned |
 | Streaming responses (SSE) | Planned |
@@ -80,6 +80,7 @@ Open http://localhost:8000/docs for the interactive API.
 |---|---|---|
 | `GET` | `/health` | Service status and version |
 | `POST` | `/documents` | Upload a `.pdf`, `.md` or `.txt` file (multipart field `file`); returns document id and chunk count |
+| `POST` | `/search` | Top-k vector search: `{"query": "...", "k": 5}` (`k` 1-50); returns chunks with cosine `score`, `document_id`, `filename`, `page` and `metadata` |
 | `GET` | `/documents` | List stored documents with their chunk counts |
 | `DELETE` | `/documents/{id}` | Delete a document and its vectors (`404` if unknown) |
 

@@ -25,6 +25,26 @@ class ChunkStore:
             metadatas=[_metadata(c) for c in chunks],
         )
 
+    def search(self, embedding: list[float], k: int = 5) -> list[dict]:
+        """Top-k chunks by cosine similarity (1 = identical), best first."""
+        if not self.collection.count():
+            return []
+        res = self.collection.query(
+            query_embeddings=[embedding],
+            n_results=k,
+            include=["documents", "metadatas", "distances"],
+        )
+        return [
+            {"id": id_, "text": text, "score": 1 - dist, "metadata": meta}
+            for id_, text, meta, dist in zip(
+                res["ids"][0],
+                res["documents"][0],
+                res["metadatas"][0],
+                res["distances"][0],
+                strict=True,
+            )
+        ]
+
     def documents(self) -> list[dict]:
         """One entry per document: id, filename and chunk count, in insertion order."""
         # ponytail: scans all chunk metadata; keep a documents table if this gets slow
