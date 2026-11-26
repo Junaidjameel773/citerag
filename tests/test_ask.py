@@ -1,7 +1,11 @@
+import json
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
 from citerag.answer import REFUSAL, build_messages, is_refusal, validate_citations
+from citerag.llm import OpenAILLM
 from citerag.main import app, get_cached_embedder, get_cached_llm
 from citerag.models import Chunk
 
@@ -23,6 +27,12 @@ class FakeLLM:
     def complete(self, messages):
         self.calls.append(messages)
         return self.answer
+
+    def stream(self, messages):
+        self.calls.append(messages)
+        # Split into word-ish tokens like a real model would.
+        yield from (w + " " for w in self.answer.split(" ")[:-1])
+        yield self.answer.split(" ")[-1]
 
 
 def use_llm(answer: str) -> FakeLLM:
@@ -118,6 +128,62 @@ def test_ask_empty_store_refuses_without_calling_llm():
 )
 def test_validate_citations(answer, expected, cited):
     assert validate_citations(answer, 3) == (expected, cited)
+
+
+def parse_sse(body: str) -> list[tuple[str, dict]]:
+    events = []
+    for block in body.strip().split("\n\n"):
+        event, data = block.split("\n")
+        events.append((event.removeprefix("event: "), json.loads(data.removeprefix("data: "))))
+    return events
+
+
+def test_ask_stream_sends_tokens_then_done_with_citations(store):
+    cats, _ = seed(store)
+    use_llm("Cats eat fish [1][9].")
+    r = client.post("/ask?stream=true", json={"question": "What do cats eat?", "k": 2})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = parse_sse(r.text)
+    tokens = [data["text"] for name, data in events if name == "token"]
+    assert "".join(tokens) == "Cats eat fish [1][9]."  # raw model output
+    assert len(tokens) == 4
+    name, done = events[-1]
+    assert name == "done" and [n for n, _ in events].count("done") == 1
+    assert done["answer"] == "Cats eat fish [1]."  # cleaned in the final event
+    assert done["refused"] is False and done["uncited"] is False
+    assert [(c["n"], c["chunk_id"]) for c in done["citations"]] == [(1, cats.id)]
+
+
+def test_ask_stream_refusal(store):
+    seed(store)
+    use_llm(REFUSAL)
+    events = parse_sse(client.post("/ask?stream=true", json={"question": "cats"}).text)
+    assert events[-1] == ("done", REFUSED)
+
+
+def test_ask_stream_empty_store_only_sends_done():
+    llm = use_llm("unused")
+    events = parse_sse(client.post("/ask?stream=true", json={"question": "cats"}).text)
+    assert events == [("done", REFUSED)]
+    assert llm.calls == []
+
+
+def test_openai_stream_skips_empty_chunks():
+    def chunk(content, choices=True):
+        delta = SimpleNamespace(content=content)
+        return SimpleNamespace(choices=[SimpleNamespace(delta=delta)] if choices else [])
+
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return iter([chunk("Hel"), chunk(None), chunk("lo"), chunk(None, choices=False)])
+
+    client_ = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    llm = OpenAILLM(model="m", client=client_)
+    assert list(llm.stream([{"role": "user", "content": "hi"}])) == ["Hel", "lo"]
+    assert calls[0]["stream"] is True
 
 
 def test_ask_validation():
