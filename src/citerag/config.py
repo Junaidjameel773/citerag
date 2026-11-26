@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     embedding_retries: int = 5
     openai_api_key: str = Field("", validation_alias="OPENAI_API_KEY")
     gemini_api_key: str = Field("", validation_alias="GEMINI_API_KEY")
+    groq_api_key: str = Field("", validation_alias="GROQ_API_KEY")
 
 
 settings = Settings()
