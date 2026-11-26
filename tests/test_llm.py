@@ -104,3 +104,15 @@ def test_groq_requires_its_own_key(monkeypatch):
     monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
     with pytest.raises(ValueError, match="GROQ_API_KEY"):
         get_llm()
+
+
+@pytest.mark.parametrize("url", ["http://gpu-box:11434", "http://gpu-box:11434/"])
+def test_ollama_uses_configured_local_server(monkeypatch, url):
+    monkeypatch.setattr(settings, "llm_provider", "ollama")
+    monkeypatch.setattr(settings, "llm_model", "")
+    monkeypatch.setattr(settings, "ollama_url", url)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-openai")
+    llm = get_llm()
+    assert llm.model == "llama3.2"
+    assert str(llm.client.base_url).rstrip("/") == "http://gpu-box:11434/v1"
+    assert llm.client.api_key == "ollama"  # the OpenAI key is never sent to the server
