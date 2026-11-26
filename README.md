@@ -24,7 +24,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 | Smart chunking with page-level metadata | Done |
 | Hybrid search (vector + BM25) with reranking | In progress (vector search done) |
 | Answers with inline citations `[1]` mapped to source passages | Planned |
-| Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | Planned |
+| Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | In progress (OpenAI done) |
 | Streaming responses (SSE) | Planned |
 | Collections to separate document sets | Planned |
 | Evaluation suite (faithfulness, answer relevance) | Planned |
@@ -66,6 +66,7 @@ Open http://localhost:8000/docs for the interactive API.
 | Variable | Default | Description |
 |---|---|---|
 | `CITERAG_LLM_PROVIDER` | `openai` | `openai`, `gemini`, `groq` or `ollama` |
+| `CITERAG_LLM_MODEL` | `gpt-4o-mini` | Chat model for the selected provider |
 | `CITERAG_CHROMA_PATH` | `./data/chroma` | Where the vector store is persisted |
 | `CITERAG_MAX_UPLOAD_MB` | `20` | Maximum upload size in MB |
 | `CITERAG_EMBEDDINGS` | `openai` | `openai`, or `local` for offline `all-MiniLM-L6-v2` (needs `uv sync --extra local`) |
