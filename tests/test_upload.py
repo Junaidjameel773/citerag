@@ -19,10 +19,12 @@ def test_upload_markdown():
     assert registry.get(body["id"]).metadata == {"chunk_count": 1}
 
 
-def test_upload_pdf():
+def test_upload_pdf(store):
     r = upload("a.pdf", make_pdf(["Page one", "Page two"]), "application/pdf")
     assert r.status_code == 201
     assert r.json()["chunks"] == 2
+    stored = store.collection.get(where={"document_id": r.json()["id"]})
+    assert sorted(m["page"] for m in stored["metadatas"]) == [1, 2]
 
 
 def test_unsupported_extension():
