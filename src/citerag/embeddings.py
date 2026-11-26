@@ -30,3 +30,29 @@ class OpenAIEmbedder:
             )
             vectors.extend(d.embedding for d in sorted(resp.data, key=lambda d: d.index))
         return vectors
+
+
+class LocalEmbedder:
+    """Offline embeddings with sentence-transformers (install the `local` extra)."""
+
+    def __init__(self, model: str = "all-MiniLM-L6-v2") -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:
+            raise RuntimeError(
+                "Local embeddings need the 'local' extra: uv sync --extra local"
+            ) from e
+        self.model = SentenceTransformer(model)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        return self.model.encode(texts, batch_size=64).tolist()
+
+
+def get_embedder() -> Embedder:
+    if settings.embeddings == "openai":
+        return OpenAIEmbedder()
+    if settings.embeddings == "local":
+        return LocalEmbedder()
+    raise ValueError(f"Unknown CITERAG_EMBEDDINGS '{settings.embeddings}'; use openai or local")
