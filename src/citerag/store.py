@@ -1,35 +1,56 @@
 import chromadb
+from chromadb.errors import NotFoundError
 
 from citerag.config import settings
 from citerag.models import Chunk
 
+# Chroma name of the collection used when no collection is given (kept from v0.1 so
+# existing data stays visible).
+DEFAULT_COLLECTION = "chunks"
+
 
 class ChunkStore:
-    """Chunks, their embeddings and metadata in a persistent Chroma collection."""
+    """Chunks, their embeddings and metadata in persistent Chroma collections, one per
+    document set. `collection=None` means the default collection."""
 
     def __init__(self, path: str | None = None) -> None:
-        client = chromadb.PersistentClient(path=path or settings.chroma_path)
-        self.collection = client.get_or_create_collection(
-            "chunks", metadata={"hnsw:space": "cosine"}
-        )
+        self.client = chromadb.PersistentClient(path=path or settings.chroma_path)
+        self.collection = self._collection(None, create=True)
 
-    def upsert(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+    def _collection(self, name: str | None, create: bool = False):
+        """The named collection; None if it doesn't exist and create is False."""
+        # Prefix named sets: allows names shorter than Chroma's 3-char minimum and keeps a
+        # set called "chunks" from aliasing the default collection.
+        name = f"c_{name}" if name else DEFAULT_COLLECTION
+        if create:
+            return self.client.get_or_create_collection(name, metadata={"hnsw:space": "cosine"})
+        try:
+            return self.client.get_collection(name)
+        except NotFoundError:
+            return None
+
+    def upsert(
+        self, chunks: list[Chunk], embeddings: list[list[float]], collection: str | None = None
+    ) -> None:
         if len(chunks) != len(embeddings):
             raise ValueError("chunks and embeddings must have the same length")
         if not chunks:
             return
-        self.collection.upsert(
+        self._collection(collection, create=True).upsert(
             ids=[c.id for c in chunks],
             embeddings=embeddings,
             documents=[c.text for c in chunks],
             metadatas=[_metadata(c) for c in chunks],
         )
 
-    def search(self, embedding: list[float], k: int = 5) -> list[dict]:
+    def search(
+        self, embedding: list[float], k: int = 5, collection: str | None = None
+    ) -> list[dict]:
         """Top-k chunks by cosine similarity (1 = identical), best first."""
-        if not self.collection.count():
+        coll = self._collection(collection)
+        if coll is None or not coll.count():
             return []
-        res = self.collection.query(
+        res = coll.query(
             query_embeddings=[embedding],
             n_results=k,
             include=["documents", "metadatas", "distances"],
@@ -45,22 +66,28 @@ class ChunkStore:
             )
         ]
 
-    def documents(self) -> list[dict]:
+    def documents(self, collection: str | None = None) -> list[dict]:
         """One entry per document: id, filename and chunk count, in insertion order."""
+        coll = self._collection(collection)
+        if coll is None:
+            return []
         # ponytail: scans all chunk metadata; keep a documents table if this gets slow
         docs: dict[str, dict] = {}
-        for m in self.collection.get(include=["metadatas"])["metadatas"]:
+        for m in coll.get(include=["metadatas"])["metadatas"]:
             doc = docs.setdefault(
                 m["document_id"], {"id": m["document_id"], "filename": m["filename"], "chunks": 0}
             )
             doc["chunks"] += 1
         return list(docs.values())
 
-    def delete_document(self, document_id: str) -> int:
+    def delete_document(self, document_id: str, collection: str | None = None) -> int:
         """Delete a document's chunks and vectors; returns how many were removed."""
-        ids = self.collection.get(where={"document_id": document_id}, include=[])["ids"]
+        coll = self._collection(collection)
+        if coll is None:
+            return 0
+        ids = coll.get(where={"document_id": document_id}, include=[])["ids"]
         if ids:
-            self.collection.delete(ids=ids)
+            coll.delete(ids=ids)
         return len(ids)
 
 

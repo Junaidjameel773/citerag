@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import PurePath
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -54,9 +54,19 @@ class DocumentInfo(BaseModel):
     chunks: int
 
 
+# 1-61 chars of letters, digits, '.', '_', '-', alphanumeric at both ends (fits Chroma's
+# naming rules once the store adds its prefix).
+COLLECTION_PATTERN = r"^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,59}[a-zA-Z0-9])?$"
+COLLECTION_HELP = "Document set to use; omit for the default collection"
+CollectionQuery = Annotated[
+    str | None, Query(pattern=COLLECTION_PATTERN, description=COLLECTION_HELP)
+]
+
+
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     k: int = Field(5, ge=1, le=50)
+    collection: str | None = Field(None, pattern=COLLECTION_PATTERN, description=COLLECTION_HELP)
 
 
 class SearchHit(BaseModel):
@@ -72,6 +82,7 @@ class SearchHit(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1)
     k: int = Field(5, ge=1, le=50)
+    collection: str | None = Field(None, pattern=COLLECTION_PATTERN, description=COLLECTION_HELP)
 
 
 class Citation(SearchHit):
@@ -85,11 +96,13 @@ class AskResponse(BaseModel):
     citations: list[Citation]  # only the sources the answer actually cites
 
 
-def _search(store: ChunkStore, embedder: Embedder, query: str, k: int) -> list[SearchHit]:
+def _search(
+    store: ChunkStore, embedder: Embedder, query: str, k: int, collection: str | None
+) -> list[SearchHit]:
     if not query.strip():
         raise HTTPException(422, "Query must not be blank")
     hits = []
-    for h in store.search(embedder.embed([query])[0], k):
+    for h in store.search(embedder.embed([query])[0], k, collection):
         meta = dict(h["metadata"])
         hits.append(
             SearchHit(
@@ -115,6 +128,7 @@ async def upload_document(
     file: UploadFile,
     store: Annotated[ChunkStore, Depends(get_store)],
     embedder: Annotated[Embedder, Depends(get_cached_embedder)],
+    collection: CollectionQuery = None,
 ) -> DocumentInfo:
     filename = file.filename or ""
     ext = PurePath(filename).suffix.lower()
@@ -138,7 +152,7 @@ async def upload_document(
 
     doc = Document(filename=filename)
     chunks = chunk_passages(doc, passages)
-    store.upsert(chunks, embedder.embed([c.text for c in chunks]))
+    store.upsert(chunks, embedder.embed([c.text for c in chunks]), collection)
     return DocumentInfo(id=doc.id, filename=filename, chunks=len(chunks))
 
 
@@ -148,7 +162,7 @@ def search(
     store: Annotated[ChunkStore, Depends(get_store)],
     embedder: Annotated[Embedder, Depends(get_cached_embedder)],
 ) -> list[SearchHit]:
-    return _search(store, embedder, req.query, req.k)
+    return _search(store, embedder, req.query, req.k, req.collection)
 
 
 def _finish(answer: str, hits: list[SearchHit]) -> AskResponse:
@@ -174,7 +188,7 @@ def ask(
     """With `?stream=true`, responds with Server-Sent Events: `token` events carrying
     `{"text": ...}` as the model writes, then one `done` event with the full AskResponse
     (cleaned answer and citations)."""
-    hits = _search(store, embedder, req.question, req.k)
+    hits = _search(store, embedder, req.question, req.k, req.collection)
     messages = build_messages(req.question, [h.model_dump() for h in hits])
     if not stream:
         if not hits:  # nothing to ground an answer in; don't pay for an LLM call
@@ -196,11 +210,17 @@ def ask(
 
 
 @app.get("/documents")
-def list_documents(store: Annotated[ChunkStore, Depends(get_store)]) -> list[DocumentInfo]:
-    return [DocumentInfo(**d) for d in store.documents()]
+def list_documents(
+    store: Annotated[ChunkStore, Depends(get_store)], collection: CollectionQuery = None
+) -> list[DocumentInfo]:
+    return [DocumentInfo(**d) for d in store.documents(collection)]
 
 
 @app.delete("/documents/{document_id}", status_code=204)
-def delete_document(document_id: str, store: Annotated[ChunkStore, Depends(get_store)]) -> None:
-    if not store.delete_document(document_id):
+def delete_document(
+    document_id: str,
+    store: Annotated[ChunkStore, Depends(get_store)],
+    collection: CollectionQuery = None,
+) -> None:
+    if not store.delete_document(document_id, collection):
         raise HTTPException(404, "Document not found")
