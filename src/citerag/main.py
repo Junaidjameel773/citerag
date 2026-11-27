@@ -16,6 +16,7 @@ from citerag.embeddings import Embedder, get_embedder
 from citerag.llm import LLM, get_llm
 from citerag.models import Document
 from citerag.parsing import parse
+from citerag.rerank import POOL, CrossEncoderReranker, get_reranker
 from citerag.store import ChunkStore
 
 # Accepted content types per extension; octet-stream is what many clients send for unknown types.
@@ -46,6 +47,11 @@ def get_cached_embedder() -> Embedder:
 @lru_cache
 def get_cached_llm() -> LLM:
     return get_llm()
+
+
+@lru_cache
+def get_cached_reranker() -> CrossEncoderReranker | None:
+    return get_reranker()
 
 
 class DocumentInfo(BaseModel):
@@ -198,12 +204,21 @@ def ask(
     store: Annotated[ChunkStore, Depends(get_store)],
     embedder: Annotated[Embedder, Depends(get_cached_embedder)],
     llm: Annotated[LLM, Depends(get_cached_llm)],
+    reranker: Annotated[CrossEncoderReranker | None, Depends(get_cached_reranker)],
     stream: bool = False,
 ):
     """With `?stream=true`, responds with Server-Sent Events: `token` events carrying
     `{"text": ...}` as the model writes, then one `done` event with the full AskResponse
     (cleaned answer and citations)."""
-    hits = _search(store, embedder, req.question, req.k, req.collection)
+    if reranker is None:
+        hits = _search(store, embedder, req.question, req.k, req.collection)
+    else:
+        hits = _search(store, embedder, req.question, req.k * POOL, req.collection)
+        for hit, score in zip(
+            hits, reranker.score(req.question, [h.text for h in hits]), strict=True
+        ):
+            hit.score = score
+        hits = sorted(hits, key=lambda h: h.score, reverse=True)[: req.k]
     messages = build_messages(req.question, [h.model_dump() for h in hits])
     if not stream:
         if not hits:  # nothing to ground an answer in; don't pay for an LLM call
