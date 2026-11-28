@@ -28,6 +28,23 @@ def build_messages(question: str, sources: list[dict]) -> list[Message]:
     ]
 
 
+REWRITE_PROMPT = """Rewrite the user's latest question as a standalone search query, using the
+conversation only to resolve references like "it", "they" or "that one".
+Keep the original language and meaning. Reply with the query only, no explanation."""
+
+
+def build_rewrite_messages(question: str, history: list[Message]) -> list[Message]:
+    """Prompt asking the model to turn a follow-up question into a standalone query."""
+    conversation = "\n".join(f"{m['role']}: {m['content']}" for m in history)
+    return [
+        {"role": "system", "content": REWRITE_PROMPT},
+        {
+            "role": "user",
+            "content": f"Conversation:\n{conversation}\n\nLatest question: {question}",
+        },
+    ]
+
+
 def is_refusal(answer: str) -> bool:
     # Models sometimes drop the period or change case, so match loosely.
     return REFUSAL.rstrip(".").lower() in answer.lower()

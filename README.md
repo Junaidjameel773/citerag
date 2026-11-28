@@ -27,6 +27,7 @@ citerag is a self-hostable REST API for retrieval-augmented generation (RAG) ove
 | Pluggable LLMs: OpenAI, Gemini, Groq, Ollama (local) | Done |
 | Streaming responses (SSE) | Done |
 | Collections to separate document sets | Done |
+| Follow-up questions rewritten from chat history | Done |
 | Evaluation suite (faithfulness, answer relevance) | Planned |
 | Docker image and one-command deploy | Planned |
 
@@ -88,7 +89,7 @@ Open http://localhost:8000/docs for the interactive API.
 | `GET` | `/health` | Service status and version |
 | `POST` | `/documents` | Upload a `.pdf`, `.md` or `.txt` file (multipart field `file`); returns document id and chunk count |
 | `POST` | `/search` | Top-k search: `{"query": "...", "k": 5, "mode": "vector"}` (`k` 1-50; `mode` `vector` for cosine similarity, `keyword` for BM25, which only returns chunks sharing a query term, or `hybrid` to fuse both with reciprocal rank fusion, where `score` is the fused RRF score); returns chunks with `score`, `document_id`, `filename`, `page` and `metadata` |
-| `POST` | `/ask` | Grounded answer: `{"question": "...", "k": 5}`; returns `answer` with inline `[n]` markers, `refused` (true when the documents lack the answer), `uncited` (true when the answer cites no valid source) and `citations` for the cited sources only (`n`, `filename`, `page`, passage `text`, ...). Markers pointing at no source are removed. With `CITERAG_RERANK=true`, the top `4k` vector hits are reordered by a cross-encoder and the best `k` are used, with `score` set to the cross-encoder score. With `?stream=true`, responds with Server-Sent Events: `token` events (`{"text": "..."}`) then one `done` event holding the full response |
+| `POST` | `/ask` | Grounded answer: `{"question": "...", "k": 5}`; returns `answer` with inline `[n]` markers, `refused` (true when the documents lack the answer), `uncited` (true when the answer cites no valid source) and `citations` for the cited sources only (`n`, `filename`, `page`, passage `text`, ...). Markers pointing at no source are removed. With `CITERAG_RERANK=true`, the top `4k` vector hits are reordered by a cross-encoder and the best `k` are used, with `score` set to the cross-encoder score. With `?stream=true`, responds with Server-Sent Events: `token` events (`{"text": "..."}`) then one `done` event holding the full response. Optional `history` (up to 50 `{"role": "user" \| "assistant", "content": "..."}` turns, oldest first) makes follow-ups like "and dogs?" work: the LLM first rewrites the question into a standalone query, which is used for retrieval and answering |
 | `GET` | `/documents` | List stored documents with their chunk counts |
 | `DELETE` | `/documents/{id}` | Delete a document and its vectors (`404` if unknown) |
 
