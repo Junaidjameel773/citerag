@@ -9,7 +9,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from citerag import __version__
-from citerag.answer import REFUSAL, build_messages, is_refusal, validate_citations
+from citerag.answer import (
+    REFUSAL,
+    build_messages,
+    build_rewrite_messages,
+    is_refusal,
+    validate_citations,
+)
 from citerag.chunking import chunk_passages
 from citerag.config import settings
 from citerag.embeddings import Embedder, get_embedder
@@ -89,10 +95,20 @@ class SearchHit(BaseModel):
     metadata: dict[str, Any]
 
 
+class Turn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=1)
     k: int = Field(5, ge=1, le=50)
     collection: str | None = Field(None, pattern=COLLECTION_PATTERN, description=COLLECTION_HELP)
+    history: list[Turn] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Earlier turns, oldest first; follow-ups are rewritten into standalone queries",
+    )
 
 
 class Citation(SearchHit):
@@ -210,16 +226,19 @@ def ask(
     """With `?stream=true`, responds with Server-Sent Events: `token` events carrying
     `{"text": ...}` as the model writes, then one `done` event with the full AskResponse
     (cleaned answer and citations)."""
+    question = req.question
+    if req.history and question.strip():
+        history = [t.model_dump() for t in req.history]
+        # Fall back to the original question if the model returns nothing usable.
+        question = llm.complete(build_rewrite_messages(question, history)).strip() or question
     if reranker is None:
-        hits = _search(store, embedder, req.question, req.k, req.collection)
+        hits = _search(store, embedder, question, req.k, req.collection)
     else:
-        hits = _search(store, embedder, req.question, req.k * POOL, req.collection)
-        for hit, score in zip(
-            hits, reranker.score(req.question, [h.text for h in hits]), strict=True
-        ):
+        hits = _search(store, embedder, question, req.k * POOL, req.collection)
+        for hit, score in zip(hits, reranker.score(question, [h.text for h in hits]), strict=True):
             hit.score = score
         hits = sorted(hits, key=lambda h: h.score, reverse=True)[: req.k]
-    messages = build_messages(req.question, [h.model_dump() for h in hits])
+    messages = build_messages(question, [h.model_dump() for h in hits])
     if not stream:
         if not hits:  # nothing to ground an answer in; don't pay for an LLM call
             return AskResponse(answer=REFUSAL, refused=True, citations=[])
